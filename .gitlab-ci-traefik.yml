@@ -1,0 +1,53 @@
+# This pipeline is triggered from a parent (makes organization/structure simpler)
+# See the root .gitlab-ci.yml for more details.
+
+# The environment 'staging' must exist and be configured to use the appropriate runner.
+# The file variable with SSH key must be present.
+# rsync must be installed on the destination system.
+# The destination user defined in HOST_USER must have passwordless sudo privileges, or permission to write to the target directory.
+# This example assumes Traefik is installed bare-metal. If installed via docker, adjust REMOTE_DIR depending on your volume/mount setup.
+
+stages:
+  - deploy
+
+variables:
+  # Remote host where Traefik is installed
+  HOST_USER: "traefikadmin"
+  HOST_IP: "10.1.23.4"
+  REMOTE_DIR: "/etc/traefik/dynamic" # Remote directory where Traefik is configured to watch for configuration files
+
+deploy_traefik_config:
+  stage: deploy
+  image: ubuntu:22.04
+  before_script:
+    - apt update && apt install -y openssh-client rsync
+    - echo "Starting ssh-agent..."
+    - eval $(ssh-agent -s)
+    
+    # Add SSH key from the GitLab File variable
+    - echo "Adding SSH private key..."
+    - chmod 400 "$SSH_PRIVATE_KEY"
+    - ssh-add "$SSH_PRIVATE_KEY"
+    
+    # Add the remote server's host key to known_hosts
+    - mkdir -p ~/.ssh
+    - chmod 700 ~/.ssh
+    - ssh-keyscan -H "$HOST_IP" >> ~/.ssh/known_hosts
+
+  script:
+    - echo "Starting Traefik Dynamic Config Deployment..."
+    - echo "Copying Traefik dynamic config files..."
+    # Use rsync with sudo to copy the files to the remote dir
+    # NOTE the --delete. This will delete any remote files not present in this source location!
+    - rsync -av --delete --rsync-path="sudo rsync" "$CI_PROJECT_DIR/traefik/dynamic/" "$HOST_USER@$HOST_IP:$REMOTE_DIR/"
+    - echo "Deployment Complete!"
+
+  environment:
+    name: staging
+    url: http://$HOST_IP
+  tags:
+    - staging
+
+  rules:
+    # This ensures the job is created when triggered from the parent pipeline.
+    - if: '$CI_PIPELINE_SOURCE == "parent_pipeline"'
