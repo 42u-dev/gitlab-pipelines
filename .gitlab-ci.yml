@@ -1,0 +1,20 @@
+# This is the root .gitlab-ci.yml pipeline that triggers child pipelines.
+
+stages:
+  # Additional stages/child pipeline triggers should be added here.
+  - trigger_traefik-config
+
+# Global variables can be defined here and will be inherited by child pipelines.
+
+trigger_traefik-config_deployment:
+  stage: trigger_traefik-config
+  trigger:
+    include: 'traefik/.gitlab-ci-traefik.yml' # Path to the child pipeline to trigger
+    strategy: depend
+  rules:
+    # In this case, 'staging' branch is protected, so PR/MR is required to trigger.
+    - if: '$CI_COMMIT_BRANCH == "staging" && $CI_PIPELINE_SOURCE == "push"'
+      changes:
+        - traefik/dynamic/**/* # Any modifications within traefik/dynamic will trigger this pipeline.
+      when: on_success
+      allow_failure: true
